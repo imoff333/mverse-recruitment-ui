@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { captureHandoffToken, apiGet, apiPost, apiPatch, getToken } from './lib/api';
+import { CareerSite } from './CareerSite';
 import { Briefcase, Users, SlidersHorizontal, Plus, X, MapPin, Building2, Globe, Download as Import, UserPlus, ArrowLeft } from 'lucide-react';
 
 captureHandoffToken();
@@ -16,6 +17,8 @@ const EMP_LABEL: Record<string, string> = { full_time: 'Full-time', part_time: '
 const inputCls = 'text-sm border border-ink-300 rounded px-2 py-1.5 w-full focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent';
 
 export function App() {
+  // Public career site — no auth, no SSO. Served at /careers/<company-slug>.
+  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/careers/')) return <CareerSite />;
   const me = useQuery({ queryKey: ['me'], queryFn: () => apiGet<Me>('/api/me'), retry: false });
   if (me.isLoading) return <div className="h-screen grid place-items-center text-ink-400 text-sm">Loading…</div>;
   if (me.isError || !getToken()) return <SignedOut />;
