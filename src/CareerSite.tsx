@@ -14,11 +14,80 @@ interface Site { orgName: string; title: string; intro: string | null; brandColo
 interface VacancyRow { id: string; title: string; department: string | null; location: string | null; remote: string; employmentType: string; salary: { min: number | null; max: number | null; currency: string } | null }
 
 const Center = ({ children }: { children: ReactNode }) => <div className="min-h-screen grid place-items-center text-ink-500 p-8 text-center">{children}</div>;
+const fmtDate = (s: string) => new Date(s).toLocaleDateString(undefined, { day: 'numeric', month: 'long', year: 'numeric' });
+
+// ── Candidate offer review + e-signature (no account) ───────────────────────────
+interface OfferView { orgName: string; role: string; title: string; candidateName: string; salary: number | null; currency: string; startDate: string | null; body: string | null; status: string; signerName: string | null; signedAt: string | null }
+
+function OfferSign({ slug, token }: { slug: string; token: string }) {
+  const [o, setO] = useState<OfferView | null>(null);
+  const [notFound, setNotFound] = useState(false);
+  const [signer, setSigner] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<'accepted' | 'declined' | null>(null);
+  useEffect(() => { pget<{ offer: OfferView }>(`/${slug}/offer/${token}`).then((d) => setO(d.offer)).catch(() => setNotFound(true)); }, [slug, token]);
+  if (notFound) return <Center>This offer link isn’t valid or has expired.</Center>;
+  if (!o) return <Center>Loading…</Center>;
+  const brand = '#ea580c';
+  const accepted = o.status === 'accepted' || result === 'accepted';
+  const declined = o.status === 'declined' || result === 'declined';
+  const act = async (decision: 'accept' | 'decline') => {
+    setBusy(true);
+    const r = await ppost(`/${slug}/offer/${token}/sign`, { decision, signerName: decision === 'accept' ? signer.trim() : null });
+    setBusy(false);
+    if (r.ok) setResult(decision === 'accept' ? 'accepted' : 'declined');
+  };
+  return (
+    <div className="min-h-screen bg-ink-50">
+      <div className="h-2" style={{ background: brand }} />
+      <div className="max-w-2xl mx-auto px-6 py-10">
+        <div className="text-xs text-ink-400">{o.orgName}</div>
+        <h1 className="font-serif text-3xl font-semibold mt-1">{o.title}</h1>
+        <p className="text-sm text-ink-500 mt-1">Prepared for {o.candidateName}</p>
+        <div className="mt-5 rounded-xl border border-ink-200 bg-white p-5 space-y-3">
+          <div className="flex flex-wrap gap-x-8 gap-y-2 text-sm">
+            <div><div className="text-xs text-ink-400">Role</div><div className="font-medium text-ink-800">{o.role}</div></div>
+            {o.salary != null && <div><div className="text-xs text-ink-400">Compensation</div><div className="font-medium text-ink-800">{o.currency}{o.salary.toLocaleString()}</div></div>}
+            {o.startDate && <div><div className="text-xs text-ink-400">Start date</div><div className="font-medium text-ink-800">{fmtDate(o.startDate)}</div></div>}
+          </div>
+          {o.body && <p className="text-sm text-ink-700 whitespace-pre-wrap leading-relaxed border-t border-ink-100 pt-3">{o.body}</p>}
+        </div>
+        {accepted ? (
+          <div className="mt-6 rounded-xl border border-emerald-200 bg-emerald-50 p-5 text-center">
+            <div className="w-12 h-12 rounded-full grid place-items-center mx-auto mb-2 text-white" style={{ background: brand }}><Check className="w-6 h-6" /></div>
+            <h2 className="font-serif text-xl font-semibold text-emerald-800">Offer accepted</h2>
+            <p className="text-sm text-emerald-700 mt-1">Signed by {o.signerName || signer}. Welcome aboard — {o.orgName} will be in touch with next steps.</p>
+          </div>
+        ) : declined ? (
+          <div className="mt-6 rounded-xl border border-ink-200 bg-white p-5 text-center text-ink-500">
+            <h2 className="font-serif text-xl font-semibold text-ink-700">Offer declined</h2>
+            <p className="text-sm mt-1">You’ve declined this offer. If this was a mistake, please contact {o.orgName}.</p>
+          </div>
+        ) : (
+          <div className="mt-6 rounded-xl border border-ink-200 bg-white p-5">
+            <h2 className="text-sm font-semibold text-ink-700 mb-2">Review &amp; sign</h2>
+            <p className="text-xs text-ink-400 mb-3">Type your full name to sign electronically. This constitutes your acceptance of the offer above.</p>
+            <input value={signer} onChange={(e) => setSigner(e.target.value)} placeholder="Your full name" className={inputCls} />
+            <div className="flex gap-2 mt-3">
+              <button onClick={() => act('accept')} disabled={!signer.trim() || busy} className="px-5 py-2.5 rounded-lg text-white font-medium disabled:opacity-40" style={{ background: brand }}>{busy ? 'Signing…' : 'Accept & sign'}</button>
+              <button onClick={() => act('decline')} disabled={busy} className="px-5 py-2.5 rounded-lg border border-ink-200 text-ink-600 text-sm">Decline</button>
+            </div>
+          </div>
+        )}
+        <p className="text-center text-xs text-ink-300 mt-8">Powered by MVerse Recruitment · e-signature</p>
+      </div>
+    </div>
+  );
+}
 
 export function CareerSite() {
   // Tenant slug from the branded subdomain (<slug>.careers.mverseapps.app), else from /careers/<slug>.
   const hostMatch = window.location.hostname.match(/^([a-z0-9-]+)\.careers\./i);
   const slug = hostMatch ? hostMatch[1] : (window.location.pathname.split('/')[2] || '');
+  // Candidate offer-signing link: …/offer/<token> (both branded-host and /careers/<slug> forms).
+  const pathParts = window.location.pathname.split('/').filter(Boolean);
+  const offerIdx = pathParts.indexOf('offer');
+  if (offerIdx >= 0 && pathParts[offerIdx + 1]) return <OfferSign slug={slug} token={pathParts[offerIdx + 1]} />;
   const [site, setSite] = useState<Site | null>(null);
   const [vacancies, setVacancies] = useState<VacancyRow[]>([]);
   const [notFound, setNotFound] = useState(false);
