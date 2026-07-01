@@ -2,7 +2,7 @@ import { useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { captureHandoffToken, apiGet, apiPost, apiPatch, apiDelete, getToken } from './lib/api';
 import { CareerSite } from './CareerSite';
-import { Briefcase, Users, SlidersHorizontal, Plus, X, MapPin, Building2, Globe, Download as Import, UserPlus, ArrowLeft, CalendarClock, ClipboardList, FileSignature, Send, Check, Trash2, Mail, FolderPlus, ExternalLink, Copy } from 'lucide-react';
+import { Briefcase, Users, SlidersHorizontal, Plus, X, MapPin, Building2, Globe, Download as Import, UserPlus, ArrowLeft, CalendarClock, ClipboardList, FileSignature, Send, Check, Trash2, Mail, FolderPlus, ExternalLink, Copy, UserCheck } from 'lucide-react';
 
 captureHandoffToken();
 
@@ -187,6 +187,7 @@ interface ApiScorecard { id: string; interviewerName: string | null; ratings: Re
 interface ApiOffer { id: string; title: string | null; body: string | null; salary: number | null; currency: string; startDate: string | null; status: string; signToken: string | null; signerName: string | null; signedAt: string | null; sentAt: string | null }
 interface AppDetail {
   id: string; status: string; source: string; matchScore: number | null; appliedAt: string; screeningAnswers: Record<string, string> | null;
+  pushedEmployeeId: string | null; hiredAt: string | null; canHire: boolean;
   vacancy: { id: string; title: string; slug: string };
   candidate: { id: string; firstName: string; lastName: string; email: string; phone: string | null; location: string | null; linkedinUrl: string | null; source: string; aiSummary: string | null; hasResume: boolean; resumeName: string | null };
   interviews: ApiInterview[]; scorecards: ApiScorecard[]; offers: ApiOffer[];
@@ -231,9 +232,47 @@ function ApplicationDetail({ id, orgSlug, onClose }: { id: string; orgSlug: stri
           <InterviewsPanel appId={id} interviews={a.interviews} onChange={inval} />
           <ScorecardsPanel appId={id} scorecards={a.scorecards} onChange={inval} />
           <OfferPanel appId={id} orgSlug={orgSlug} candidateName={`${a.candidate.firstName} ${a.candidate.lastName}`} role={a.vacancy.title} offers={a.offers} onChange={inval} />
+          <HirePanel appId={id} pushedEmployeeId={a.pushedEmployeeId} canHire={a.canHire} orgSlug={orgSlug} onChange={inval} />
         </div>
       )}
     </Modal>
+  );
+}
+
+interface HireResult { employeeId: string; created?: boolean; alreadyHired?: boolean; onboarding: { journeyId: string | null; tasks: number; requiredLearningAssigned: number } | null }
+function HirePanel({ appId, pushedEmployeeId, canHire, orgSlug, onChange }: { appId: string; pushedEmployeeId: string | null; canHire: boolean; orgSlug: string; onChange: () => void }) {
+  const [result, setResult] = useState<HireResult | null>(null);
+  const [err, setErr] = useState('');
+  const hire = useMutation({
+    mutationFn: () => apiPost<HireResult>(`/api/applications/${appId}/hire`),
+    onMutate: () => setErr(''),
+    onSuccess: (r) => { setResult(r); onChange(); },
+    onError: (e: unknown) => {
+      const s = String((e as Error)?.message ?? '');
+      setErr(s.includes('400') ? 'This vacancy isn’t linked to a People position, so the hire can’t be created in People.'
+        : s.includes('403') ? 'You need HR-admin permission in People to create employees.'
+        : s.includes('502') ? 'Couldn’t reach People to create the employee. Please try again.'
+        : 'Couldn’t complete the hire. Please try again.');
+    },
+  });
+  const done = !!pushedEmployeeId || !!result;
+  return (
+    <Panel icon={UserCheck} title="Hire → People">
+      {done ? (
+        <div className="rounded-lg border border-emerald-200 bg-emerald-50 p-3 text-sm">
+          <div className="text-emerald-800 font-medium inline-flex items-center gap-1.5"><Check className="w-4 h-4" /> Hired — created as an employee in People</div>
+          {result?.onboarding && <p className="text-xs text-emerald-700 mt-1">Onboarding journey started ({result.onboarding.tasks} task{result.onboarding.tasks === 1 ? '' : 's'}{result.onboarding.requiredLearningAssigned ? `, ${result.onboarding.requiredLearningAssigned} required course${result.onboarding.requiredLearningAssigned === 1 ? '' : 's'}` : ''}).</p>}
+          <a href={`https://${orgSlug}.mverseapps.app/`} target="_blank" rel="noreferrer" className="text-accent text-xs inline-flex items-center gap-0.5 mt-1.5">Open in People <ExternalLink className="w-3 h-3" /></a>
+        </div>
+      ) : (
+        <div>
+          <p className="text-xs text-ink-400 mb-2">Create this candidate as an employee in People and start their onboarding journey.</p>
+          <button onClick={() => canHire && hire.mutate()} disabled={!canHire || hire.isPending} className="px-3 py-1.5 rounded-lg bg-accent text-white text-xs inline-flex items-center gap-1.5 disabled:opacity-40"><UserCheck className="w-3.5 h-3.5" /> {hire.isPending ? 'Creating in People…' : 'Hire into People'}</button>
+          {!canHire && <p className="text-[11px] text-ink-400 mt-1.5">Enabled once the vacancy is published from a People position.</p>}
+          {err && <p className="text-[11px] text-rose-600 mt-1.5">{err}</p>}
+        </div>
+      )}
+    </Panel>
   );
 }
 
