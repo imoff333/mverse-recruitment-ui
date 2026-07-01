@@ -58,7 +58,7 @@ function Shell({ me }: { me: Me }) {
       </aside>
       <main className="flex-1 overflow-auto px-8 py-7">
         {view.name === 'jobs' && <JobsView onOpen={(id, title) => setView({ name: 'pipeline', id, title })} />}
-        {view.name === 'pipeline' && <PipelineView id={view.id} title={view.title} onBack={() => setView({ name: 'jobs' })} />}
+        {view.name === 'pipeline' && <PipelineView id={view.id} title={view.title} orgSlug={me.orgSlug} onBack={() => setView({ name: 'jobs' })} />}
         {view.name === 'candidates' && <CandidatesView />}
         {view.name === 'settings' && <SettingsView orgSlug={me.orgSlug} />}
       </main>
@@ -135,7 +135,7 @@ function PositionsModal({ onClose }: { onClose: () => void }) {
   );
 }
 
-function PipelineView({ id, title, onBack }: { id: string; title: string; onBack: () => void }) {
+function PipelineView({ id, title, orgSlug, onBack }: { id: string; title: string; orgSlug: string; onBack: () => void }) {
   const qc = useQueryClient(); const inval = () => qc.invalidateQueries({ queryKey: ['board', id] });
   const q = useQuery({ queryKey: ['board', id], queryFn: () => apiGet<{ vacancy: { id: string; title: string; status: string; slug: string }; stages: Stage[]; applications: AppCard[] }>(`/api/vacancies/${id}/board`) });
   const move = useMutation({ mutationFn: (v: { appId: string; stageId: string }) => apiPatch(`/api/applications/${v.appId}`, { stageId: v.stageId }), onSuccess: inval });
@@ -176,7 +176,7 @@ function PipelineView({ id, title, onBack }: { id: string; title: string; onBack
         })}
       </div>
       {addOpen && <AddCandidateModal vacancyId={id} onClose={() => { setAddOpen(false); inval(); }} />}
-      {openApp && <ApplicationDetail id={openApp} onClose={() => { setOpenApp(null); inval(); }} />}
+      {openApp && <ApplicationDetail id={openApp} orgSlug={orgSlug} onClose={() => { setOpenApp(null); inval(); }} />}
     </div>
   );
 }
@@ -205,7 +205,7 @@ function Panel({ icon: Icon, title, action, children }: { icon: typeof CalendarC
 const AddBtn = ({ onClick, open }: { onClick: () => void; open: boolean }) => <button onClick={onClick} className="text-xs text-accent">{open ? 'Close' : '+ Add'}</button>;
 const Empty = ({ children }: { children: ReactNode }) => <p className="text-xs text-ink-400 py-1">{children}</p>;
 
-function ApplicationDetail({ id, onClose }: { id: string; onClose: () => void }) {
+function ApplicationDetail({ id, orgSlug, onClose }: { id: string; orgSlug: string; onClose: () => void }) {
   const qc = useQueryClient();
   const q = useQuery({ queryKey: ['application', id], queryFn: () => apiGet<{ application: AppDetail }>(`/api/applications/${id}`) });
   const inval = () => qc.invalidateQueries({ queryKey: ['application', id] });
@@ -230,7 +230,7 @@ function ApplicationDetail({ id, onClose }: { id: string; onClose: () => void })
           </div>
           <InterviewsPanel appId={id} interviews={a.interviews} onChange={inval} />
           <ScorecardsPanel appId={id} scorecards={a.scorecards} onChange={inval} />
-          <OfferPanel appId={id} slug={a.vacancy.slug} candidateName={`${a.candidate.firstName} ${a.candidate.lastName}`} role={a.vacancy.title} offers={a.offers} onChange={inval} />
+          <OfferPanel appId={id} orgSlug={orgSlug} candidateName={`${a.candidate.firstName} ${a.candidate.lastName}`} role={a.vacancy.title} offers={a.offers} onChange={inval} />
         </div>
       )}
     </Modal>
@@ -310,14 +310,14 @@ function ScorecardsPanel({ appId, scorecards, onChange }: { appId: string; score
   );
 }
 
-function OfferPanel({ appId, slug, candidateName, role, offers, onChange }: { appId: string; slug: string; candidateName: string; role: string; offers: ApiOffer[]; onChange: () => void }) {
+function OfferPanel({ appId, orgSlug, candidateName, role, offers, onChange }: { appId: string; orgSlug: string; candidateName: string; role: string; offers: ApiOffer[]; onChange: () => void }) {
   const current = offers.find((o) => o.status !== 'declined') || offers[0];
   const [creating, setCreating] = useState(false); const [copied, setCopied] = useState(false);
   const [f, setF] = useState({ salary: '', currency: '£', startDate: '', body: `Dear ${candidateName.split(' ')[0]},\n\nWe are delighted to offer you the role of ${role}. We were impressed throughout the process and would love for you to join the team.\n\nPlease review the details below and sign to accept.` });
   const create = useMutation({ mutationFn: () => apiPost(`/api/applications/${appId}/offers`, { title: `Offer — ${role}`, body: f.body, salary: f.salary ? Number(f.salary) : null, currency: f.currency, startDate: f.startDate ? new Date(f.startDate).toISOString() : null }), onSuccess: () => { setCreating(false); onChange(); } });
   const setStatus = useMutation({ mutationFn: (status: string) => apiPatch(`/api/offers/${current!.id}`, { status }), onSuccess: onChange });
   const del = useMutation({ mutationFn: () => apiDelete(`/api/offers/${current!.id}`), onSuccess: onChange });
-  const link = current?.signToken ? `${window.location.origin}/careers/${slug}/offer/${current.signToken}` : '';
+  const link = current?.signToken ? `${window.location.origin}/careers/${orgSlug}/offer/${current.signToken}` : '';
   const copy = () => navigator.clipboard?.writeText(link).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1500); });
   const showCreate = creating || !current;
   return (
