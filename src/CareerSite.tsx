@@ -16,7 +16,9 @@ interface VacancyRow { id: string; title: string; department: string | null; loc
 const Center = ({ children }: { children: ReactNode }) => <div className="min-h-screen grid place-items-center text-ink-500 p-8 text-center">{children}</div>;
 
 export function CareerSite() {
-  const slug = window.location.pathname.split('/')[2] || '';
+  // Tenant slug from the branded subdomain (<slug>.careers.mverseapps.app), else from /careers/<slug>.
+  const hostMatch = window.location.hostname.match(/^([a-z0-9-]+)\.careers\./i);
+  const slug = hostMatch ? hostMatch[1] : (window.location.pathname.split('/')[2] || '');
   const [site, setSite] = useState<Site | null>(null);
   const [vacancies, setVacancies] = useState<VacancyRow[]>([]);
   const [notFound, setNotFound] = useState(false);

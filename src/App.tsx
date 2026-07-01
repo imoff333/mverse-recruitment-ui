@@ -17,8 +17,9 @@ const EMP_LABEL: Record<string, string> = { full_time: 'Full-time', part_time: '
 const inputCls = 'text-sm border border-ink-300 rounded px-2 py-1.5 w-full focus:outline-none focus:ring-2 focus:ring-accent/30 focus:border-accent';
 
 export function App() {
-  // Public career site — no auth, no SSO. Served at /careers/<company-slug>.
-  if (typeof window !== 'undefined' && window.location.pathname.startsWith('/careers/')) return <CareerSite />;
+  // Public career site — no auth, no SSO. Served at /careers/<slug> OR the branded
+  // per-tenant subdomain <slug>.careers.mverseapps.app (host-based resolution).
+  if (typeof window !== 'undefined' && (window.location.pathname.startsWith('/careers/') || /\.careers\./i.test(window.location.hostname))) return <CareerSite />;
   const me = useQuery({ queryKey: ['me'], queryFn: () => apiGet<Me>('/api/me'), retry: false });
   if (me.isLoading) return <div className="h-screen grid place-items-center text-ink-400 text-sm">Loading…</div>;
   if (me.isError || !getToken()) return <SignedOut />;
