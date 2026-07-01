@@ -2,7 +2,9 @@ import { useState, type ReactNode } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { captureHandoffToken, apiGet, apiPost, apiPatch, apiDelete, getToken } from './lib/api';
 import { CareerSite } from './CareerSite';
-import { Briefcase, Users, SlidersHorizontal, Plus, X, MapPin, Building2, Globe, Download as Import, UserPlus, ArrowLeft, CalendarClock, ClipboardList, FileSignature, Send, Check, Trash2, Mail, FolderPlus, ExternalLink, Copy, UserCheck } from 'lucide-react';
+import { Briefcase, Users, SlidersHorizontal, Plus, X, MapPin, Building2, Globe, Download as Import, UserPlus, ArrowLeft, CalendarClock, ClipboardList, FileSignature, Send, Check, Trash2, Mail, FolderPlus, ExternalLink, Copy, UserCheck, Sparkles, BarChart3 } from 'lucide-react';
+
+const useAiStatus = () => useQuery({ queryKey: ['ai-status'], queryFn: () => apiGet<{ available: boolean; model: string }>('/api/ai/status'), staleTime: Infinity });
 
 captureHandoffToken();
 
@@ -38,7 +40,7 @@ function SignedOut() {
 }
 
 function Shell({ me }: { me: Me }) {
-  const [view, setView] = useState<{ name: 'jobs' } | { name: 'pipeline'; id: string; title: string } | { name: 'candidates' } | { name: 'settings' }>({ name: 'jobs' });
+  const [view, setView] = useState<{ name: 'jobs' } | { name: 'pipeline'; id: string; title: string } | { name: 'candidates' } | { name: 'analytics' } | { name: 'settings' }>({ name: 'jobs' });
   const Nav = ({ icon: Icon, label, active, onClick }: { icon: typeof Briefcase; label: string; active: boolean; onClick: () => void }) => (
     <button onClick={onClick} className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition ${active ? 'bg-accent/10 text-accent font-medium' : 'text-ink-600 hover:bg-ink-100'}`}><Icon className="w-4 h-4" /> {label}</button>
   );
@@ -49,6 +51,7 @@ function Shell({ me }: { me: Me }) {
         <nav className="flex flex-col gap-1">
           <Nav icon={Briefcase} label="Jobs" active={view.name === 'jobs' || view.name === 'pipeline'} onClick={() => setView({ name: 'jobs' })} />
           <Nav icon={Users} label="Candidates" active={view.name === 'candidates'} onClick={() => setView({ name: 'candidates' })} />
+          <Nav icon={BarChart3} label="Analytics" active={view.name === 'analytics'} onClick={() => setView({ name: 'analytics' })} />
           <Nav icon={SlidersHorizontal} label="Settings" active={view.name === 'settings'} onClick={() => setView({ name: 'settings' })} />
         </nav>
         <div className="mt-auto px-2 text-xs text-ink-400">
@@ -60,6 +63,7 @@ function Shell({ me }: { me: Me }) {
         {view.name === 'jobs' && <JobsView onOpen={(id, title) => setView({ name: 'pipeline', id, title })} />}
         {view.name === 'pipeline' && <PipelineView id={view.id} title={view.title} orgSlug={me.orgSlug} onBack={() => setView({ name: 'jobs' })} />}
         {view.name === 'candidates' && <CandidatesView />}
+        {view.name === 'analytics' && <AnalyticsView />}
         {view.name === 'settings' && <SettingsView orgSlug={me.orgSlug} />}
       </main>
     </div>
@@ -98,9 +102,16 @@ function JobsView({ onOpen }: { onOpen: (id: string, title: string) => void }) {
 }
 
 function NewJobModal({ onClose }: { onClose: () => void }) {
-  const [f, setF] = useState({ title: '', department: '', location: '', employmentType: 'full_time', remote: 'onsite', description: '' });
+  const [f, setF] = useState({ title: '', department: '', location: '', employmentType: 'full_time', remote: 'onsite', description: '', responsibilities: '', requirements: '' });
   const set = (k: string, v: string) => setF((s) => ({ ...s, [k]: v }));
-  const create = useMutation({ mutationFn: () => apiPost('/api/vacancies', f), onSuccess: onClose });
+  const ai = useAiStatus();
+  const [aiErr, setAiErr] = useState('');
+  const gen = useMutation({
+    mutationFn: () => apiPost<{ available: boolean; description?: string; responsibilities?: string; requirements?: string }>('/api/ai/generate-jd', { title: f.title, department: f.department || null }),
+    onSuccess: (r) => { if (r.available) setF((s) => ({ ...s, description: r.description || s.description, responsibilities: r.responsibilities || '', requirements: r.requirements || '' })); else setAiErr('AI is not configured.'); },
+    onError: () => setAiErr('AI generation failed. Please try again.'),
+  });
+  const create = useMutation({ mutationFn: () => apiPost('/api/vacancies', f), onMutate: () => setAiErr(''), onSuccess: onClose, onError: () => setAiErr('Couldn’t create the job. Please try again.') });
   return (
     <Modal onClose={onClose} title="New job">
       <label className="text-sm block">Title<input value={f.title} onChange={(e) => set('title', e.target.value)} className={inputCls} placeholder="e.g. Senior Software Engineer" /></label>
@@ -110,7 +121,13 @@ function NewJobModal({ onClose }: { onClose: () => void }) {
         <label className="text-sm">Type<select value={f.employmentType} onChange={(e) => set('employmentType', e.target.value)} className={inputCls}>{Object.entries(EMP_LABEL).map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></label>
         <label className="text-sm">Work<select value={f.remote} onChange={(e) => set('remote', e.target.value)} className={inputCls}><option value="onsite">On-site</option><option value="hybrid">Hybrid</option><option value="remote">Remote</option></select></label>
       </div>
-      <label className="text-sm block">Description<textarea value={f.description} onChange={(e) => set('description', e.target.value)} rows={4} className={inputCls} /></label>
+      <div className="flex items-center justify-between">
+        <span className="text-sm">Description</span>
+        {ai.data?.available && <button onClick={() => { setAiErr(''); if (f.title.trim()) gen.mutate(); }} disabled={!f.title.trim() || gen.isPending} className="text-xs text-accent inline-flex items-center gap-1 disabled:opacity-40"><Sparkles className="w-3.5 h-3.5" /> {gen.isPending ? 'Drafting…' : 'Generate with AI'}</button>}
+      </div>
+      <textarea value={f.description} onChange={(e) => set('description', e.target.value)} rows={4} className={inputCls} placeholder="Role overview…" />
+      {(f.responsibilities || f.requirements) && <p className="text-[11px] text-emerald-600 -mt-1">✨ AI also drafted responsibilities & requirements — they’ll show on the career site.</p>}
+      {aiErr && <p className="text-[11px] text-rose-600 -mt-1">{aiErr}</p>}
       <button onClick={() => f.title.trim() && create.mutate()} disabled={!f.title.trim() || create.isPending} className="px-4 py-2 rounded-lg bg-accent text-white text-sm disabled:opacity-40">Create</button>
     </Modal>
   );
@@ -220,7 +237,7 @@ function ApplicationDetail({ id, orgSlug, onClose }: { id: string; orgSlug: stri
   };
   return (
     <Modal wide onClose={onClose} title={a ? `${a.candidate.firstName} ${a.candidate.lastName}` : 'Candidate'}>
-      {!a ? <p className="text-sm text-ink-400">Loading…</p> : (
+      {q.isError ? <p className="text-sm text-rose-600">Couldn’t load this candidate. Please close and retry.</p> : !a ? <p className="text-sm text-ink-400">Loading…</p> : (
         <div className="space-y-5">
           <div className="text-sm text-ink-500 flex flex-wrap items-center gap-x-3 gap-y-1 -mt-1">
             <span>{a.candidate.email}</span>
@@ -229,6 +246,7 @@ function ApplicationDetail({ id, orgSlug, onClose }: { id: string; orgSlug: stri
             {a.candidate.linkedinUrl && <a href={a.candidate.linkedinUrl} target="_blank" rel="noreferrer" className="text-accent inline-flex items-center gap-0.5">LinkedIn <ExternalLink className="w-3 h-3" /></a>}
             {a.candidate.hasResume && <button onClick={downloadResume} className="text-accent inline-flex items-center gap-0.5">Résumé <Import className="w-3 h-3" /></button>}
           </div>
+          <AiAssessPanel appId={id} matchScore={a.matchScore} aiSummary={a.candidate.aiSummary} onChange={inval} />
           <InterviewsPanel appId={id} interviews={a.interviews} onChange={inval} />
           <ScorecardsPanel appId={id} scorecards={a.scorecards} onChange={inval} />
           <OfferPanel appId={id} orgSlug={orgSlug} candidateName={`${a.candidate.firstName} ${a.candidate.lastName}`} role={a.vacancy.title} offers={a.offers} onChange={inval} />
@@ -524,6 +542,107 @@ function TemplateModal({ template, onClose }: { template: Template | null; onClo
       <label className="text-sm block">Body<textarea value={f.body} onChange={(e) => setF({ ...f, body: e.target.value })} rows={8} className={inputCls} /></label>
       <div className="flex gap-2"><button onClick={() => ok && save.mutate()} disabled={!ok || save.isPending} className="px-4 py-2 rounded-lg bg-accent text-white text-sm disabled:opacity-40">Save</button>{template && <button onClick={() => del.mutate()} className="px-4 py-2 rounded-lg border border-ink-200 text-sm text-rose-600">Delete</button>}</div>
     </Modal>
+  );
+}
+
+// ── AI candidate assessment (match score + neutral summary + strengths/gaps) ─────
+interface AssessResult { available: boolean; matchScore?: number; summary?: string; strengths?: string; gaps?: string }
+function AiAssessPanel({ appId, matchScore, aiSummary, onChange }: { appId: string; matchScore: number | null; aiSummary: string | null; onChange: () => void }) {
+  const ai = useAiStatus();
+  const [res, setRes] = useState<AssessResult | null>(null);
+  const [err, setErr] = useState('');
+  const assess = useMutation({
+    mutationFn: () => apiPost<AssessResult>(`/api/applications/${appId}/ai-assess`),
+    onMutate: () => setErr(''),
+    onSuccess: (r) => { if (r.available) { setRes(r); onChange(); } else setErr('AI is not configured.'); },
+    onError: () => setErr('Assessment failed. Please try again.'),
+  });
+  const score = res?.matchScore ?? matchScore;
+  const summary = res?.summary ?? aiSummary;
+  const has = score != null || !!summary;
+  if (!ai.data?.available && !has) return null; // hide when AI is off and nothing was ever generated
+  return (
+    <Panel icon={Sparkles} title="AI assessment" action={ai.data?.available ? <button onClick={() => assess.mutate()} disabled={assess.isPending} className="text-xs text-accent">{assess.isPending ? 'Assessing…' : has ? 'Re-assess' : 'Assess fit'}</button> : undefined}>
+      {!has ? <Empty>Run an AI fit assessment against the role.</Empty> : (
+        <div className="rounded-lg border border-ink-100 p-3 text-sm space-y-2">
+          {score != null && <div className="flex items-center gap-2"><span className="text-2xl font-semibold text-accent">{score}<span className="text-sm text-ink-400">/100</span></span><span className="text-xs text-ink-400">job-relevant match</span></div>}
+          {summary && <p className="text-xs text-ink-600">{summary}</p>}
+          {res?.strengths && <div><div className="text-[11px] font-semibold text-emerald-700 mt-1">Strengths</div><p className="text-xs text-ink-600 whitespace-pre-wrap">{res.strengths}</p></div>}
+          {res?.gaps && <div><div className="text-[11px] font-semibold text-amber-700 mt-1">Gaps</div><p className="text-xs text-ink-600 whitespace-pre-wrap">{res.gaps}</p></div>}
+          <p className="text-[10px] text-ink-400 pt-1 border-t border-ink-100">AI-assisted, using job-relevant evidence only. A human makes the final decision.</p>
+        </div>
+      )}
+      {err && <p className="text-[11px] text-rose-600 mt-1">{err}</p>}
+    </Panel>
+  );
+}
+
+// ── Analytics ────────────────────────────────────────────────────────────────
+interface Analytics {
+  vacancies: { total: number; published: number };
+  candidates: { active: number; hired: number; rejected: number; total: number };
+  funnel: { stage: string; count: number }[];
+  timeToFill: number | null;
+  bySource: { source: string; applications: number; hires: number }[];
+  offers: { sent: number; accepted: number; declined: number; draft: number; approved: number; acceptanceRate: number | null };
+  avgMatchScore: number | null;
+  diversity: Record<string, Record<string, number | null>>;
+  diversityThreshold: number;
+}
+const STAGE_LABEL: Record<string, string> = { applied: 'Applied', screen: 'Screen', interview: 'Interview', offer: 'Offer', hired: 'Hired' };
+const Kpi = ({ label, value }: { label: string; value: ReactNode }) => <div className="rounded-xl border border-ink-200 bg-white p-3"><div className="text-2xl font-semibold text-ink-800">{value}</div><div className="text-xs text-ink-400 mt-0.5">{label}</div></div>;
+const Card = ({ title, children }: { title: string; children: ReactNode }) => <div className="rounded-xl border border-ink-200 bg-white p-4"><h3 className="text-sm font-semibold text-ink-700 mb-2">{title}</h3>{children}</div>;
+const Row = ({ label, value }: { label: string; value: ReactNode }) => <div className="flex justify-between text-sm"><span className="text-ink-500">{label}</span><span className="font-medium text-ink-800">{value}</span></div>;
+
+function AnalyticsView() {
+  const q = useQuery({ queryKey: ['analytics'], queryFn: () => apiGet<Analytics>('/api/analytics') });
+  const a = q.data;
+  const funnelMax = a ? Math.max(1, ...a.funnel.map((f) => f.count)) : 1;
+  return (
+    <div className="max-w-4xl">
+      <h1 className="font-serif text-3xl font-semibold mb-1">Analytics</h1>
+      <p className="text-sm text-ink-500 mb-5">Hiring funnel, sources and outcomes across all jobs.</p>
+      {q.isError ? <p className="text-sm text-rose-600">Couldn’t load analytics. Please refresh.</p> : !a ? <p className="text-sm text-ink-400">Loading…</p> : (
+        <div className="space-y-6">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <Kpi label="Open roles" value={a.vacancies.published} />
+            <Kpi label="Active candidates" value={a.candidates.active} />
+            <Kpi label="Avg time-to-fill" value={a.timeToFill != null ? `${a.timeToFill}d` : '—'} />
+            <Kpi label="Offer acceptance" value={a.offers.acceptanceRate != null ? `${a.offers.acceptanceRate}%` : '—'} />
+          </div>
+          <Card title="Hiring funnel (candidates who reached each stage)">
+            <div className="space-y-1.5">{a.funnel.map((f) => (
+              <div key={f.stage} className="flex items-center gap-2"><span className="w-20 text-xs text-ink-500">{STAGE_LABEL[f.stage] ?? f.stage}</span><div className="flex-1 bg-ink-100 rounded h-5 overflow-hidden"><div className="h-full bg-accent/80" style={{ width: `${(f.count / funnelMax) * 100}%` }} /></div><span className="w-6 text-right text-xs text-ink-600">{f.count}</span></div>
+            ))}</div>
+          </Card>
+          <div className="grid sm:grid-cols-2 gap-4">
+            <Card title="Source effectiveness">
+              {a.bySource.length === 0 ? <Empty>No data yet.</Empty> : (
+                <table className="w-full text-sm"><thead><tr className="text-[11px] text-ink-400 text-left"><th className="font-medium">Source</th><th className="font-medium text-right">Apps</th><th className="font-medium text-right">Hires</th></tr></thead>
+                  <tbody>{a.bySource.map((s) => <tr key={s.source} className="border-t border-ink-100"><td className="capitalize py-1">{s.source}</td><td className="text-right">{s.applications}</td><td className="text-right">{s.hires}</td></tr>)}</tbody></table>
+              )}
+            </Card>
+            <Card title="Offers">
+              <div className="space-y-1">
+                <Row label="Sent" value={a.offers.sent} />
+                <Row label="Accepted" value={a.offers.accepted} />
+                <Row label="Declined" value={a.offers.declined} />
+                <Row label="Acceptance rate" value={a.offers.acceptanceRate != null ? `${a.offers.acceptanceRate}%` : '—'} />
+                {a.avgMatchScore != null && <Row label="Avg AI match" value={`${a.avgMatchScore}/100`} />}
+              </div>
+            </Card>
+          </div>
+          <Card title="Diversity — voluntary EEO">
+            <p className="text-[11px] text-ink-400 mb-2">Aggregated for equal-opportunity monitoring only; counts below {a.diversityThreshold} are suppressed and never linked to individuals.</p>
+            {Object.keys(a.diversity).length === 0 ? <Empty>No voluntary EEO responses yet.</Empty> : (
+              <div className="grid sm:grid-cols-3 gap-4">{Object.entries(a.diversity).map(([dim, vals]) => (
+                <div key={dim}><div className="text-xs font-medium text-ink-700 capitalize mb-1">{dim}</div>{Object.entries(vals).map(([v, n]) => <div key={v} className="flex justify-between text-xs text-ink-500"><span className="truncate pr-2">{v}</span><span>{n == null ? `<${a.diversityThreshold}` : n}</span></div>)}</div>
+              ))}</div>
+            )}
+          </Card>
+        </div>
+      )}
+    </div>
   );
 }
 
